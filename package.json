@@ -1,0 +1,35 @@
+{
+  "name": "tauri-source-extractor",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "description": "Tauri 关键源码提取器 —— 扫描 Tauri 项目，一键导出可喂给 AI 的合并源码包",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview:design": "vite build --config vite.preview.config.ts",
+    "verify:sel": "node --experimental-strip-types scripts/verify-sel-delta.ts",
+    "verify:ipc": "node scripts/verify-ipc.mjs",
+    "verify:render": "node scripts/run-render-smoke.mjs",
+    "verify": "npm run verify:ipc && npm run verify:sel && npm run verify:render",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}

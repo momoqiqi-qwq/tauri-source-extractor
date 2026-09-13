@@ -1,0 +1,8 @@
+node_modules
+dist
+# 设计预览的构建产物（由 npm run preview:design 生成）
+design-preview
+src-tauri/target
+src-tauri/gen/schemas
+.DS_Store
+*.log
