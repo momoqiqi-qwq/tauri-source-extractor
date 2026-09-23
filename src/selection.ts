@@ -183,3 +183,61 @@ export function nextSelMap(prev: SelMap, entries: ArchiveEntry[]): SelMap {
   }
   return next;
 }
+
+/* ---------------- 多选标记（批量移除 / 批量启停用） ---------------- */
+
+/**
+ * 项目行上的「多选」集合运算。键是 ProjectEntry.id。
+ *
+ * 与 `selected`（勾了哪些**文件**）是两回事，也与 `enabled`（这个文件夹
+ * 是否纳入工作集）无关 —— 三者混在一起迟早出静默错，所以各自独立。
+ * Shift 点选的区间逻辑最容易写错（方向、锚点、重复点同一个），单独放这里可断言。
+ */
+
+/**
+ * 三态全选：给定的这批 id 已全标 → 只取消这批；否则 → 只标上这批。
+ *
+ * 「只动这批」很关键：管理页筛选后表头只剩 3 行，点全选不该把
+ * 屏幕外已标记的 20 行一起清掉。
+ */
+export function markAll(ids: string[], marked: Set<string>): Set<string> {
+  if (ids.length === 0) return marked;
+  const allOn = ids.every((id) => marked.has(id));
+  const next = new Set(marked);
+  for (const id of ids) {
+    if (allOn) next.delete(id);
+    else next.add(id);
+  }
+  return next;
+}
+
+/** 在当前可见集合内取反 */
+export function invertMark(ids: string[], marked: Set<string>): Set<string> {
+  const next = new Set(marked);
+  for (const id of ids) {
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+  }
+  return next;
+}
+
+/**
+ * Shift + 点选：把 `anchorId` 到 `targetId` 之间（含两端）的 id 并入标记集。
+ *
+ * 顺序由调用方传入的 `orderedIds` 决定（即屏幕上看到的顺序），因此排序、
+ * 筛选之后区间仍然是"视觉上相邻"的那几条。任一端不在列表里 → 原样返回。
+ */
+export function rangeMark(
+  orderedIds: string[],
+  anchorId: string,
+  targetId: string,
+  marked: Set<string>
+): Set<string> {
+  const a = orderedIds.indexOf(anchorId);
+  const b = orderedIds.indexOf(targetId);
+  if (a < 0 || b < 0) return marked;
+  const [from, to] = a <= b ? [a, b] : [b, a];
+  const next = new Set(marked);
+  for (const id of orderedIds.slice(from, to + 1)) next.add(id);
+  return next;
+}

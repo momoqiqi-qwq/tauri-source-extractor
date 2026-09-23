@@ -63,8 +63,9 @@ export function mkProject(
   nFiles: number,
   nSelected: number,
   sizeEach: number,
-  status: "ready" | "loading" | "error" = "ready",
-  error?: string
+  status: ProjectEntry["status"] = "ready",
+  error?: string,
+  enabled = true
 ): ProjectEntry {
   uid += 1;
   const files = mkFiles(nFiles, sizeEach);
@@ -92,10 +93,12 @@ export function mkProject(
           }
         : null,
     selected,
+    enabled,
+    marked: false,
   };
 }
 
-/** 覆盖三档预算 + 三种状态的样例集合 */
+/** 覆盖三档预算 + 就绪/扫描中/失败/未启用四种状态的样例集合 */
 export function mkProjects(): ProjectEntry[] {
   return [
     mkProject(
@@ -148,6 +151,18 @@ export function mkProjects(): ProjectEntry[] {
       0,
       "error",
       "目录不存在或不是文件夹：E:\\E-Develop-Project\\broken-project"
+    ),
+    // 未启用：只在列表里占一行，不扫描、不渲染文件树、不进统计
+    mkProject(
+      "awescnb-master",
+      "E:\\E-Develop-Project\\awescnb-master",
+      "node",
+      258,
+      226,
+      1100,
+      "ready",
+      undefined,
+      false
     ),
   ];
 }

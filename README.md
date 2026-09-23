@@ -11,6 +11,7 @@ Tauri 项目结构分散（Rust 后端 + 前端 + 配置 + capabilities），手
 3. **一键合并**——输出带目录树 + 文件路径标注 + 语言高亮的单文件包，附 token 估算
 4. **安全默认**——`.env*`、`*.key`、`credentials.json` 等凭据默认不勾选并标红 `SECRET`
 5. **上下文预算**——实时预估 token 数并对比常见窗口，超了就变黄/变红提醒
+6. **按需加载**——导入几十个文件夹时，只有你勾选启用的那几个才会被扫描和展开
 
 ## 上下文预算（重要）
 
@@ -40,10 +41,11 @@ Tauri 项目结构分散（Rust 后端 + 前端 + 配置 + capabilities），手
 - **自动识别子项目**：选一个父目录（比如 `E:\E-Develop-Project`），自动把下面所有含
   `src-tauri/`、`package.json` 或 `Cargo.toml` 的目录一次加进来
 - 每张卡片可**单独展开 / 收起**，顶部还有「全部展开 / 全部收起」
+- **只有勾了启用框的文件夹才会真的扫描**，未启用的只占列表里一行（见「勾选的文件夹才会被加载」）
 - 每个项目有自己的勾选状态、分类统计、`↻` 重新扫描、`导出`（只导出本项目）
-- 全局「生成提取包」会把所有项目**合并成一个包**：目录树以项目名为顶层，
+- 全局「生成提取包」会把所有**已启用**项目**合并成一个包**：目录树以项目名为顶层，
   文件标题带项目前缀，避免不同项目的同名文件混淆
-- 项目列表存在 localStorage，下次打开自动恢复（勾选也会，见下节）
+- 项目列表（含哪些处于启用状态）存在 localStorage，下次打开自动恢复（勾选也会，见下节）
 
 ## 已加载文件夹管理页
 
@@ -53,7 +55,8 @@ Tauri 项目结构分散（Rust 后端 + 前端 + 配置 + capabilities），手
 
 | 列 | 说明 |
 | --- | --- |
-| 项目 | 类型徽章（TAURI / NODE / RUST）+ 名称 |
+| （多选） | 行首圆形多选钮，`Shift` 点选成段，表头全选；选中后底部浮出批量条 |
+| 项目 | 启用勾选框 + 类型徽章（TAURI / NODE / RUST）+ 名称。未启用的行整行置灰、数字显示 `—` |
 | 完整路径 | 等宽字体，过长省略，悬停看全 |
 | 文件 | `已选 / 总数` |
 | 行数 | 已选文件的总行数 |
@@ -99,14 +102,19 @@ Tauri 项目结构分散（Rust 后端 + 前端 + 配置 + capabilities），手
 系统尊重操作系统的「减少动态效果」设置：`prefers-reduced-motion: reduce` 下所有动画与
 过渡即时完成，界面功能不受影响。
 
-> JS 侧只需要知道两个数值：`MOTION.exit`（退场动画时长，决定何时卸载）与
-> `MOTION.toastTtl`（toast 停留时长）。改 CSS 的 `--dur-exit` 时要同步 `motion.ts`，反之亦然。
+> JS 侧只需要知道一个数值：`MOTION.exit`（退场动画时长，决定何时卸载）。改 CSS 的
+> `--dur-exit` 时要同步 `motion.ts`，反之亦然。弹层**停留多久**不再是写死的常量，
+> 而是用户可改的偏好，住在 `DEFAULT_SETTINGS` 的 `toastTtl` / `errorTtl`（见「设置」一节）。
 
 ### 改 UI 时怎么预览
 
 ```bash
-npm run preview:design   # 产物在 design-preview/，浏览器直接打开
+npm run preview:design                       # 产物在 design-preview/
+npx vite preview --outDir design-preview     # 用浏览器打开它报出的 http://localhost:xxxx
 ```
+
+> 产物**不能直接双击用 `file://` 打开**：ES module 在 `file:` 下被当作唯一源，
+> 会被 CORS 拦掉（页面空白，控制台才是真相）。必须经 HTTP。
 
 渲染的是**真实的组件 + 真实的 styles.css + 真实的 `selection.ts` 纯逻辑**，
 只把 Tauri 文件系统层换成内存 mock —— 不是手抄的静态 HTML
@@ -118,11 +126,53 @@ npm run preview:design   # 产物在 design-preview/，浏览器直接打开
 - 批量选择（全选 / 全不选 / 仅关键 / 反选）、点分类 chip、展开收起文件树，都真的生效
 - 管理页可点表头排序、在筛选框里打字、点「移除」删行、点「+ 添加项目」加行
 - 「重扫」会真的走一遍 `扫描中… → 就绪`，用来检查状态样式
+- 启用勾选框、行首多选圆点 + Shift 成段选 + 批量条、拖拽侧边栏宽度、设置面板改数值，
+  全都是真状态真生效 —— 上面这些交互就是在这个 harness 里点着验的
 
 好处是交互对不对可以**直接上手试**，不必靠文字描述互相想象，也不必启动 Tauri。
 动效与真实应用完全一致（同一份 `styles.css` token 与类名约定），进场、退场、错峰都能直接看到。
 
-mock 数据刻意覆盖三档预算颜色和三种状态，让所有样式分支都能被看到。
+mock 数据刻意覆盖三档预算颜色，以及就绪 / 扫描中 / 失败 / 未启用四种状态，让所有样式分支都能被看到。
+
+## 勾选的文件夹才会被加载
+
+一次导入几十个文件夹是常态（`自动识别子项目` 一下就是一屏）。全部自动扫描、全部展开文件树，
+代价是**上万行 DOM 挂在页面上**，界面直接卡死。所以「加进列表」和「真的加载」被拆成两步：
+
+- 每个项目行首一个**启用勾选框**：勾上才扫描、才渲染文件树、才进统计与导出
+- 未启用的行只占一行（置灰、数字显示 `—`、状态 `未启用`），点一下就能启用
+- 一次添加**超过「自动加载上限」个**文件夹时默认全部不启用，等你自己挑；这个阈值可在设置里改
+- 停用不丢数据：扫描结果留在内存里，再勾上立刻就有树，不必重扫
+
+多选是**另一件事**，用行首的圆形按钮（hover 才现身，与方形的启用框在形状上区分开）：
+选中若干行后底部浮出批量条，可批量启用 / 停用 / 反选 / **一键移除**。管理页表格支持
+`Shift` 点选成段，表头有全选框。移除只删列表项与它的勾选存档，**不碰磁盘上的任何文件**，
+默认还需要点第二次确认（可在设置里关掉）。
+
+> 这里有个容易踩的坑：勾选存档按「还活着的根目录」清理。若把未启用的项目从传给
+> `nextSelMap` 的列表里过滤掉，它们的存档会被当成"已删除"一起清掉。
+> 这条不变量由 `npm run verify:sel` 锁住。
+
+## 设置
+
+顶栏 ⚙（或 `Ctrl + ,`）呼出。放的是原先**写死在代码里的时长与阈值**，改完即时生效并自动保存：
+
+| 组 | 项 | 默认 |
+| --- | --- | --- |
+| 提醒 | 提示停留时长（0 = 不自动关闭）、错误横幅停留时长 | 2400ms / 常驻 |
+| 加载行为 | 自动加载上限、启用后自动展开、文件树折叠阈值 | 5 / 开 / 250 个 |
+| 导出与预览 | 自动重生成、重生成防抖、预览截断字符数 | 开 / 700ms / 200000 |
+| 界面 | 左侧面板宽度、批量移除二次确认 | 470px / 开 |
+
+导出格式、目录树、统计、单文件上限**不在这里** —— 右侧选项栏已经是它们的唯一入口，
+两处入口必然漂移。
+
+设置与 `ExtractOptions` 是两个类型：后者是 `extract_bundle` 的 IPC 契约，会整个序列化给
+Rust，把「toast 停留多久」塞进去等于往协议里加后端从不读的字段。
+
+侧边栏宽度也可以**直接拖**中间的分隔条：钳制在 320px 与窗口宽度之间，双击复位，
+点住后可用 `←/→` 微调（`Shift` 加大步长）。拖动过程中宽度不走 React state，
+而是直接改写 CSS 变量，松手才提交一次 —— 否则每移动一像素就重渲染整棵项目树。
 
 ## 勾选会被记住
 
@@ -207,6 +257,18 @@ mock 数据刻意覆盖三档预算颜色和三种状态，让所有样式分支
 
 ## 更新日志
 
+### v0.5.0 自己拿主意：按需加载、批量管理、可配置
+
+- **勾选才加载**：项目行首的启用框决定谁真的扫描、展开文件树、进统计与导出；
+  一次导入几十个文件夹不再自动挂出上万行 DOM
+- **多选 + 一键移除**：行首圆形多选钮（管理页支持 `Shift` 成段选、表头全选），
+  底部批量条可批量启用 / 停用 / 反选 / 移除；移除只删列表与存档，不碰磁盘
+- **侧边栏可拖拽调宽**：分隔条拖动 / 双击复位 / `←/→` 微调，宽度持久化
+- **设置面板**（顶栏 ⚙ 或 `Ctrl + ,`）：提示与错误停留时长、自动加载上限、
+  文件树折叠阈值、自动重生成开关与防抖、预览截断字符数、面板宽度、批量移除是否二次确认
+- 存档读写新增往返校验 `npm run verify:persist`：坏字段不再被 `Number()` 悄悄变成 0，
+  老 `roots.v2` 存档可迁移，localStorage 不可用时静默降级
+
 ### v0.4.0 舒适：暗色主题
 
 - 全套颜色 token 化：组件规则不再写死颜色，暗色只需覆盖一层 token
@@ -235,8 +297,9 @@ mock 数据刻意覆盖三档预算颜色和三种状态，让所有样式分支
 | `Ctrl + Shift + C` | 复制提取包 |
 | `Ctrl + F` 或 `/` | 聚焦搜索框（在管理页会先切回提取视图） |
 | `Ctrl + 1` / `Ctrl + 2` | 切换 提取 / 已加载文件夹 |
+| `Ctrl + ,` | 打开设置 |
 | `?` | 快捷键速查浮层 |
-| `Esc` | 关闭弹层 |
+| `Esc` | 关闭弹层（设置 / 速查表） |
 
 单键快捷键（`/`、`?`）在输入框打字时不会触发；`Ctrl` 组合键随时可用。
 
@@ -281,7 +344,7 @@ bash scripts/msvc-env.sh                     # 只打印检测到的工具链路
 
 ```
 src-tauri/target/release/tauri-source-extractor.exe                              # 免安装单文件
-src-tauri/target/release/bundle/nsis/Tauri Source Extractor_0.4.0_x64-setup.exe  # NSIS 安装包
+src-tauri/target/release/bundle/nsis/Tauri Source Extractor_0.5.0_x64-setup.exe  # NSIS 安装包
 ```
 
 ### 测试与校验
@@ -290,21 +353,24 @@ src-tauri/target/release/bundle/nsis/Tauri Source Extractor_0.4.0_x64-setup.exe 
 # 后端单元 + 端到端测试（32 项）
 bash scripts/msvc-env.sh cargo test --lib
 
-# 前端校验：IPC 命令名一致性 + 勾选增量往返（32 项）+ 组件渲染冒烟（19 项）
+# 前端校验：IPC 命令名一致性 + 勾选增量往返（45 项）+ 存档读写往返（18 项）
+# + 组件渲染冒烟（35 项）
 npm run verify
 ```
 
 覆盖分类规则、行数统计、二进制嗅探、目录树渲染、语言映射、token 估算、时间格式化，
-以及下面三类**静默失败**（不报错、只是结果不对）：
+以及下面四类**静默失败**（不报错、只是结果不对）：
 
 | 校验 | 防的是什么 |
 | --- | --- |
 | `verify:ipc` | 前端 `invoke("...")` 的名字与后端 `generate_handler![...]` 不一致 —— tsc 能过、构建能过，只有点下去才报 `command not found` |
-| `verify:sel` | 勾选增量存/取的往返有损 —— 不报错，只是重启后少勾/多勾 |
+| `verify:sel` | 勾选增量存/取的往返有损 —— 不报错，只是重启后少勾/多勾；以及未启用项目的存档被误清、多选区间算错 |
+| `verify:persist` | 存档坏字段被 `Number()` 悄悄转成 0（`toastTtl` 变 0 = 弹层再也不消失）、老存档迁移丢启用状态、localStorage 不可用时直接崩 |
 | `verify:render` | 组件在真实渲染路径上抛异常（未定义的 props、空数组取下标）—— `vite build` 能过，只有打开界面才白屏 |
 
-> `verify:sel` 直接 `import ../src/selection.ts`（真实实现），不复制逻辑，
-> 避免脚本与实现悄悄漂移后给出虚假的通过。
+> `verify:sel` / `verify:persist` 直接 `import ../src/*.ts`（真实实现），不复制逻辑，
+> 避免脚本与实现悄悄漂移后给出虚假的通过。也因此这几个模块的**值导入**必须写全
+> `.ts` 后缀（Node 的 ESM 解析器不像 Vite 会补扩展名；纯类型导入会被擦除，不用写）。
 
 `verify:render` 用 `react-dom/server` 把真实组件渲染成 HTML，**不需要浏览器**，
 因此在命令行 / CI 里就能跑。断言分两类，不能混：
@@ -335,19 +401,22 @@ npm run verify
 src/                        前端（React + TS）
   App.tsx                   主界面编排：项目列表、选项、预算、导出
   api.ts                    invoke / dialog 封装
-  types.ts                  与 Rust 结构体对应的类型 + 预算/格式化工具
-  selection.ts              勾选纯逻辑（默认值、增量、重扫合并、批量/分类操作、存档解析与合并）
+  types.ts                  与 Rust 结构体对应的类型 + 界面偏好（UiSettings）+ 预算/格式化工具
+  selection.ts              勾选纯逻辑（默认值、增量、重扫合并、批量/分类操作、存档解析与合并、多选集合运算）
   stats.ts                  选中统计纯函数（顶栏总计 / 卡片 / 管理页共用一套口径）
-  persistence.ts            localStorage 读写（项目列表 / 选项 / 勾选增量 / 主题）
+  persistence.ts            localStorage 读写（项目列表 + 启用状态 / 选项 / 勾选增量 / 主题 / 界面偏好）
   motion.ts                 动效系统 JS 侧：弹层「进→停→出」生命周期（usePresence）
-  components/Topbar.tsx        顶栏（品牌、视图切换、主题、全局动作）
+  components/Topbar.tsx        顶栏（品牌、视图切换、主题、设置入口、全局动作）
   components/ShortcutsModal.tsx 快捷键速查浮层（? 呼出）
+  components/SettingsModal.tsx  设置面板（Ctrl + , 呼出，提醒/加载/导出/界面四组偏好）
   components/FileTree.tsx      文件树（三态勾选、搜索、大项目默认折叠）
-  components/ProjectCard.tsx   单个项目卡片（展开/收起、分类勾选、单独导出）
-  components/ProjectManager.tsx 已加载文件夹管理页（表格 + 横向对比 + 批量操作）
+  components/ProjectCard.tsx   单个项目卡片（启用勾选、多选、展开/收起、分类勾选、单独导出）
+  components/ProjectManager.tsx 已加载文件夹管理页（表格 + 横向对比 + 启用列 + Shift 多选）
+  components/PanelResizer.tsx  侧边栏拖拽手柄（拖动期直写 CSS 变量，松手才提交）
+  components/BulkBar.tsx       多选后的批量操作条（启用/停用/反选/二次确认移除）
 preview/                    设计预览 harness（真实组件 + mock 数据，可交互）
   main.tsx                  迷你版应用：视图切换 + 真实交互处理
-  mocks.ts                  共享 mock 数据（覆盖三档预算 + 三种状态）
+  mocks.ts                  共享 mock 数据（覆盖三档预算 + 就绪/扫描中/失败/未启用四种状态）
 src-tauri/src/
   lib.rs                    命令注册 + 端到端测试 + 真实项目体检
   scanner.rs                扫描 + 分类 + 文本嗅探 + 子项目自动发现
@@ -357,7 +426,8 @@ src-tauri/src/
 scripts/make_icon.py        纯标准库生成源图标（无 PIL 依赖）
 scripts/msvc-env.sh         Git Bash 下注入 MSVC 构建环境（见上文「构建」）
 scripts/verify-ipc.mjs      IPC 命令名一致性校验
-scripts/verify-sel-delta.ts 勾选增量往返校验（直接 import 真实实现）
+scripts/verify-sel-delta.ts 勾选增量与多选集合往返校验（直接 import 真实实现）
+scripts/verify-persistence.ts 存档读写往返校验（stub localStorage）
 scripts/smoke-render.tsx    组件渲染冒烟测试（react-dom/server）
 scripts/run-render-smoke.mjs 用 esbuild 打包上面的 .tsx 再交给 node 跑
 ```
@@ -365,7 +435,8 @@ scripts/run-render-smoke.mjs 用 esbuild 打包上面的 .tsx 再交给 node 跑
 ## 常见问题
 
 **「生成提取包」按钮是灰的？**
-说明当前勾选数为 0。展开左侧项目，点工具条上的「仅关键」即可一键勾选所有关键源码。
+两种可能：① 一个项目都没启用 —— 未启用的文件夹不参与导出，勾上它行首的方框；
+② 启用了但勾选数为 0 —— 展开左侧项目，点工具条上的「仅关键」即可一键勾选所有关键源码。
 
 **扫不到文件？**
 确认选的是**项目根目录**（含 `src-tauri/` 或 `package.json` 的那一层），不是它的父目录。

@@ -10,6 +10,7 @@ interface Props {
   onCollapseAll: () => void;
   onExpandAll: () => void;
   onShowShortcuts: () => void;
+  onShowSettings: () => void;
   /** 主题三态与循环切换（system → light → dark） */
   theme: "system" | "light" | "dark";
   onCycleTheme: () => void;
@@ -33,6 +34,7 @@ export default function Topbar({
   onCollapseAll,
   onExpandAll,
   onShowShortcuts,
+  onShowSettings,
   theme,
   onCycleTheme,
   onClear,
@@ -95,6 +97,14 @@ export default function Topbar({
           title="键盘快捷键（随时按 ? 呼出）"
         >
           ⌨
+        </button>
+        <button
+          className="btn icon"
+          onClick={onShowSettings}
+          aria-label="设置"
+          title="设置（Ctrl+,）：提醒时长、加载行为、预览上限等"
+        >
+          ⚙
         </button>
         {projectCount > 0 && (
           <button className="btn" onClick={onClear} title="清空项目列表（不会删除磁盘文件）">

@@ -13,9 +13,12 @@ import {
   bulkSelect,
   computeDelta,
   defaultSelection,
+  invertMark,
+  markAll,
   mergeRescan,
   nextSelMap,
   parseSelMap,
+  rangeMark,
   toggleCategory,
   type ArchiveEntry,
 } from "../src/selection.ts";
@@ -246,6 +249,70 @@ check("默认勾选 = 所有关键文件", defaultSelection(files), new Set(KEY_
 
   // 项目被移除 → 存档一并清掉
   checkTrue("存档：已移除项目的存档被清掉", !(KEY in nextSelMap(withOff, [])));
+
+  // 「未启用 = 还没扫描」的项目必须留在 entries 里传给 nextSelMap。
+  // 若调用方图省事只传已启用的项目，alive 集合就少了它，上次存的勾选会被悄悄删掉。
+  const OFF_KEY = "e:\\disabled";
+  const kept = nextSelMap({ [OFF_KEY]: { off: ["config.json"], on: [] } }, [
+    { root: OFF_KEY, scan: null, selected: new Set() },
+    offOne,
+  ]);
+  checkTrue("存档：未启用（未扫描）的项目，其存档不被相邻项目的写入冲掉", OFF_KEY in kept);
+}
+
+// 13) 多选标记：全选三态 / 取反 / Shift 区间
+{
+  const ids = ["a", "b", "c", "d"];
+  check("多选：空集点全选 → 全部", markAll(ids, new Set()), new Set(ids));
+  check("多选：已全选再点全选 → 清空（三态）", markAll(ids, new Set(ids)), new Set());
+  check(
+    "多选：部分已选再点全选 → 补齐为全部",
+    markAll(ids, new Set(["a"])),
+    new Set(ids)
+  );
+  const untouched = new Set<string>();
+  checkTrue(
+    "多选：空列表点全选 → 返回同一引用（no-op 可被识别）",
+    markAll([], untouched) === untouched
+  );
+  // 筛选后表头只剩 a、b：全选态取消时不能把屏幕外的 c、d 一起清掉
+  check(
+    "多选：全选取消只影响当前可见批次",
+    markAll(["a", "b"], new Set(["a", "b", "c", "d"])),
+    new Set(["c", "d"])
+  );
+
+  check(
+    "多选：取反只在可见集合内生效",
+    invertMark(["a", "b"], new Set(["b", "z"])),
+    new Set(["a", "z"])
+  );
+  check("多选：取反两次回到原状", invertMark(ids, invertMark(ids, new Set(["a"]))), new Set(["a"]));
+
+  // Shift 点选：倒序拖（从后往前点）也要覆盖中间
+  check(
+    "多选：Shift 区间 正向",
+    rangeMark(ids, "a", "c", new Set()),
+    new Set(["a", "b", "c"])
+  );
+  check(
+    "多选：Shift 区间 反向（从 d 拖到 b）",
+    rangeMark(ids, "d", "b", new Set()),
+    new Set(["b", "c", "d"])
+  );
+  check(
+    "多选：Shift 区间 保留已有标记",
+    rangeMark(ids, "a", "b", new Set(["d"])),
+    new Set(["a", "b", "d"])
+  );
+  check(
+    "多选：Shift 区间 单点（锚点=目标）",
+    rangeMark(ids, "c", "c", new Set()),
+    new Set(["c"])
+  );
+  // 筛选后锚点已被过滤掉 → 不该乱标，原样返回
+  const before = new Set(["a"]);
+  checkTrue("多选：Shift 区间 锚点不在列表中 → 不动", rangeMark(["b", "c"], "a", "c", before) === before);
 }
 
 console.log(failures === 0 ? "\n全部通过" : `\n${failures} 项失败`);

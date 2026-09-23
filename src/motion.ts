@@ -6,9 +6,11 @@
  * 2) 生命周期 —— 本文件的 usePresence，负责弹层什么时候挂载、什么时候退场；
  * 3) 进场模式 —— CSS keyframes 绑定在组件类名上，谁挂载谁播放。
  *
- * JS 只需要知道两个数值，改 CSS 时必须同步这里：
+ * JS 只需要知道一个数值，改 CSS 时必须同步这里：
  *   MOTION.exit    退场动画时长（--dur-exit），到点后真正卸载元素
- *   MOTION.toastTtl toast 停留时长
+ *
+ * 弹层「停留多久」不在这里 —— 那是用户可改的偏好，住在 types.ts 的
+ * DEFAULT_SETTINGS（toastTtl / errorTtl），由 App 作为 ttl 传给 usePresence。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -18,7 +20,6 @@ export const MOTION = {
   slow: 300,
   /** 对齐 styles.css 的 --dur-exit */
   exit: 160,
-  toastTtl: 2400,
 } as const;
 
 export interface PresenceState<T> {
@@ -30,7 +31,7 @@ export interface PresenceState<T> {
 /**
  * 弹层生命周期钩子。
  *
- * - show(value)：进场；带 ttl 时到点自动退场
+ * - show(value)：进场；带 ttl 时到点自动退场（ttl ≤ 0 = 不自动关，常驻到手动 dismiss）
  * - dismiss()：先置 leaving 播退场动画，再卸载——弹层不再是「啪一下消失」
  * - set(value | null)：兼容旧的 setError(msg | null) 写法，null 即退场
  *
@@ -60,7 +61,7 @@ export function usePresence<T>(ttl: number | null = null) {
       clearTimers();
       setSeq((s) => s + 1);
       setCurrent({ value, leaving: false });
-      if (ttl !== null) {
+      if (ttl !== null && ttl > 0) {
         timers.current.push(window.setTimeout(dismiss, ttl));
       }
     },

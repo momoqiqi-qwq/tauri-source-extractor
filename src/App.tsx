@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import BulkBar from "./components/BulkBar";
+import PanelResizer from "./components/PanelResizer";
 import ProjectCard from "./components/ProjectCard";
 import ProjectManager from "./components/ProjectManager";
+import SettingsModal from "./components/SettingsModal";
 import Topbar from "./components/Topbar";
 import ShortcutsModal from "./components/ShortcutsModal";
 import {
@@ -21,11 +25,13 @@ import type {
   ExtractOptions,
   ProjectEntry,
   ProjectKind,
+  UiSettings,
 } from "./types";
 import {
   BUDGET_TEXT,
   budgetLevel,
   dateStamp,
+  DEFAULT_SETTINGS,
   estimateTokensFromBytes,
   formatBytes,
   formatNumber,
@@ -33,23 +39,27 @@ import {
 import {
   applyDelta,
   bulkSelect,
+  invertMark,
   mergeRescan,
   nextSelMap,
   toggleCategory,
   type BulkMode,
 } from "./selection";
-import { MOTION, usePresence } from "./motion";
+import { usePresence } from "./motion";
 import { projectStats } from "./stats";
 import {
   applyTheme,
   loadOptions,
   loadRoots,
+  loadSettings,
   loadTheme,
   readSelMap,
   saveOptions,
   saveRoots,
+  saveSettings,
   saveTheme,
   writeSelMap,
+  type RootRecord,
   type ThemeMode,
 } from "./persistence";
 
@@ -77,12 +87,15 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<ExtractOptions>(() => loadOptions());
+  /** 界面偏好（时长 / 阈值 / 面板宽度），与发给后端的 ExtractOptions 分开 */
+  const [settings, setSettings] = useState<UiSettings>(() => loadSettings());
   const [bundle, setBundle] = useState<BundleResult | null>(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   // 弹层（toast / 错误横幅）统一走动效系统的 presence 生命周期：进 → 停 → 出
-  const toastPres = usePresence<ToastPayload>(MOTION.toastTtl);
-  const errorPres = usePresence<string>();
+  // 停留时长来自设置，改完下一次弹层就生效（usePresence 的 show 依赖 ttl）
+  const toastPres = usePresence<ToastPayload>(settings.toastTtl);
+  const errorPres = usePresence<string>(settings.errorTtl);
   const flash = useCallback(
     (text: string, action?: ToastPayload["action"]) => toastPres.show({ text, action }),
     [toastPres.show]
@@ -90,6 +103,7 @@ export default function App() {
   const setError = errorPres.set;
   const [showHeaderEditor, setShowHeaderEditor] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   /** 主题三态：跟随系统 / 亮 / 暗（应用逻辑在 persistence.applyTheme） */
   const [theme, setTheme] = useState<ThemeMode>(() => loadTheme());
   /** 主视图：extract = 挑文件 + 导出；manage = 已加载文件夹统管 */
@@ -97,6 +111,8 @@ export default function App() {
   /** 有文件夹正被拖到窗口上 → 全窗遮罩提示 */
   const [dragOver, setDragOver] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  /** 承载 --left-w 的容器，拖拽时由 PanelResizer 直接写 CSS 变量 */
+  const appRef = useRef<HTMLDivElement>(null);
 
   const didInit = useRef(false);
 
@@ -140,33 +156,55 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * 新添加的文件夹要不要立刻读盘。
+   *
+   * 一次拖进来几十个文件夹时全部自动扫描，等于把「挑要看哪几个」的决定权
+   * 从用户手里抢走，还要为此等上一轮 IO —— 所以超过阈值就只进列表，等勾选。
+   */
+  const toRecords = useCallback(
+    (roots: string[]): RootRecord[] => {
+      const auto = roots.length <= settings.autoLoadLimit;
+      return roots.map((root) => ({ root, enabled: auto }));
+    },
+    [settings.autoLoadLimit]
+  );
+
   const addRoots = useCallback(
-    (roots: string[]) => {
+    (items: RootRecord[]) => {
       const existing = new Set(projects.map((p) => p.root.toLowerCase()));
       const seen = new Set<string>();
-      const fresh: string[] = [];
-      for (const r of roots) {
-        const key = r.toLowerCase();
+      const fresh: RootRecord[] = [];
+      for (const it of items) {
+        const key = it.root.toLowerCase();
         if (existing.has(key) || seen.has(key)) continue;
         seen.add(key);
-        fresh.push(r);
+        fresh.push(it);
       }
       if (fresh.length === 0) {
         flash("这些文件夹已经在列表里了");
         return;
       }
-      const added: ProjectEntry[] = fresh.map((root) => ({
+      const added: ProjectEntry[] = fresh.map(({ root, enabled }) => ({
         id: nextId(),
         root,
         name: baseName(root),
         kind: "unknown" as ProjectKind,
         collapsed: false,
-        status: "loading" as const,
+        status: enabled ? ("loading" as const) : ("idle" as const),
         scan: null,
         selected: new Set<string>(),
+        enabled,
+        marked: false,
       }));
       setProjects((prev) => [...prev, ...added]);
-      for (const p of added) void scanOne(p.id, p.root);
+      for (const p of added) if (p.enabled) void scanOne(p.id, p.root);
+      const off = added.filter((p) => !p.enabled).length;
+      flash(
+        off > 0
+          ? `已添加 ${added.length} 个文件夹，勾选其中 ${off} 个才会扫描并加载文件树`
+          : `已添加并加载 ${added.length} 个文件夹`
+      );
     },
     [projects, scanOne, flash]
   );
@@ -184,7 +222,7 @@ export default function App() {
           setDragOver(false);
         } else if (event.payload.type === "drop") {
           setDragOver(false);
-          if (event.payload.paths.length > 0) addRoots(event.payload.paths);
+          if (event.payload.paths.length > 0) addRoots(toRecords(event.payload.paths));
         }
       })
       .then((fn) => {
@@ -195,21 +233,25 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [addRoots]);
+  }, [addRoots, toRecords]);
 
   // 首次加载：恢复上次的项目列表（读档细节在 persistence.ts）
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
-    const roots = loadRoots();
-    if (roots.length > 0) addRoots(roots);
+    const records = loadRoots();
+    if (records.length > 0) addRoots(records);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 持久化（读写与纯逻辑都在 persistence.ts）
   useEffect(() => {
-    saveRoots(projects.map((p) => p.root));
+    saveRoots(projects.map((p) => ({ root: p.root, enabled: p.enabled })));
   }, [projects]);
+
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
 
   useEffect(() => {
     saveOptions(options);
@@ -237,6 +279,10 @@ export default function App() {
   // 持久化「勾选增量」。两个提前返回都是必须的，否则会把存档清空：
   //   1) 挂载初期 projects 还是空数组 —— 若继续往下走，alive 集合为空会把所有存档删掉
   //   2) 还有项目在扫描中 —— 此时 selected 还是默认值，写下去等于用默认值覆盖用户存档
+  //
+  // 注意这里传的是**完整的 projects**，不能按 enabled 过滤：nextSelMap 靠 alive 集合
+  // 决定哪些存档该删，未启用（scan 为 null）的项目一旦不在列表里，它上次退出前的
+  // 勾选就会被连带清掉 —— 由 verify:sel 的第 12 组断言锁住。
   useEffect(() => {
     if (projects.length === 0) return;
     if (projects.some((p) => p.status === "loading")) return;
@@ -261,6 +307,60 @@ export default function App() {
     },
     []
   );
+
+  /**
+   * 启用 / 停用一批文件夹 —— 「勾选才加载」的落点。
+   *
+   * 停用不丢扫描结果：scan 留在内存里，再勾上立刻就有树，不必重扫。
+   * 待扫描的清单在 updater 外面算：React 严格模式会把 updater 调两次，
+   * 在里面收集副作用就会对同一个文件夹发起两次扫描。
+   */
+  const setEnabledFor = useCallback(
+    (ids: string[], enabled: boolean) => {
+      const idSet = new Set(ids);
+      const targets = projects.filter((p) => idSet.has(p.id) && p.enabled !== enabled);
+      setProjects((prev) =>
+        prev.map((p) => {
+          if (!idSet.has(p.id) || p.enabled === enabled) return p;
+          const status = enabled
+            ? // 有扫描结果 → 立刻就绪（不必重扫）；没有 → 交给下面的 scanOne
+              p.scan
+              ? "ready"
+              : "loading"
+            : p.status === "loading"
+              ? "loading"
+              : "idle";
+          return {
+            ...p,
+            enabled,
+            status,
+            collapsed: enabled && settings.expandOnEnable ? false : p.collapsed,
+          };
+        })
+      );
+      if (enabled) {
+        for (const p of targets) if (!p.scan) void scanOne(p.id, p.root);
+      }
+      setDirty(true);
+    },
+    [projects, settings.expandOnEnable, scanOne]
+  );
+
+  /** 多选集合存在每个 entry 上，这里只做整表对齐，保证只有一个真相 */
+  const setMarked = useCallback((next: Set<string>) => {
+    setProjects((prev) =>
+      prev.map((p) => {
+        const want = next.has(p.id);
+        return want === p.marked ? p : { ...p, marked: want };
+      })
+    );
+  }, []);
+
+  const toggleMarkOne = useCallback((id: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, marked: !p.marked } : p))
+    );
+  }, []);
 
   const setSelectedFor = useCallback(
     (id: string, paths: string[], checked: boolean) => {
@@ -302,10 +402,22 @@ export default function App() {
     [patchProject]
   );
 
+  const markedIds = useMemo(() => projects.filter((p) => p.marked).map((p) => p.id), [projects]);
+  const markedSet = useMemo(() => new Set(markedIds), [markedIds]);
+
   const removeProject = useCallback((id: string) => {
     setProjects((prev) => prev.filter((p) => p.id !== id));
     setDirty(true);
   }, []);
+
+  /** 一键移除所有多选的文件夹。只删列表项，磁盘上的项目文件一律不动 */
+  const removeMarked = useCallback(() => {
+    if (markedIds.length === 0) return;
+    const ids = new Set(markedIds);
+    setProjects((prev) => prev.filter((p) => !ids.has(p.id)));
+    setDirty(true);
+    flash(`已移除 ${ids.size} 个文件夹（磁盘文件未改动）`);
+  }, [markedIds, flash]);
 
   const toggleCollapse = useCallback(
     (id: string) => {
@@ -315,16 +427,18 @@ export default function App() {
   );
 
   const setAllCollapsed = useCallback((collapsed: boolean) => {
-    setProjects((prev) => prev.map((p) => ({ ...p, collapsed })));
+    // 未启用的卡片没有树可折叠，别把它们一起改了
+    setProjects((prev) => prev.map((p) => (p.enabled ? { ...p, collapsed } : p)));
   }, []);
 
-  /** 管理页点「打开」：切到提取页并展开该文件夹 */
+  /** 管理页点「打开」：启用该文件夹，切到提取页并展开 */
   const openProject = useCallback(
     (id: string) => {
+      setEnabledFor([id], true);
       patchProject(id, (p) => ({ ...p, collapsed: false }));
       setView("extract");
     },
-    [patchProject]
+    [setEnabledFor, patchProject]
   );
 
   // ---------- 生成 ----------
@@ -332,7 +446,7 @@ export default function App() {
   const selectedPayload = useMemo(
     () =>
       projects
-        .filter((p) => p.scan && p.selected.size > 0)
+        .filter((p) => p.enabled && p.scan && p.selected.size > 0)
         .map((p) => ({
           name: p.name,
           root: p.root,
@@ -364,25 +478,27 @@ export default function App() {
     }
   }, [selectedPayload, options]);
 
-  // 选择 / 扫描 / 选项变化后，自动重新生成（防抖），让预览始终是最新的
+  // 选择 / 扫描 / 选项变化后，自动重新生成（防抖），让预览始终是最新的。
+  // 关掉设置里的 autoRegenerate 就只剩手动生成；防抖时长同样是设置项。
   useEffect(() => {
+    if (!settings.autoRegenerate) return;
     if (!dirty || busy) return;
     if (selectedPayload.length === 0) return;
     if (projects.some((p) => p.status === "loading")) return;
     const t = window.setTimeout(() => {
       void generate();
-    }, 700);
+    }, settings.regenDebounce);
     return () => window.clearTimeout(t);
-  }, [dirty, busy, projects, selectedPayload, generate]);
+  }, [dirty, busy, projects, selectedPayload, generate, settings.autoRegenerate, settings.regenDebounce]);
 
   const handleAdd = useCallback(async () => {
     try {
       const dirs = await pickFolders();
-      if (dirs.length) addRoots(dirs);
+      if (dirs.length) addRoots(toRecords(dirs));
     } catch (e) {
       setError(String(e));
     }
-  }, [addRoots]);
+  }, [addRoots, toRecords, setError]);
 
   const handleAutoDetect = useCallback(async () => {
     try {
@@ -397,14 +513,14 @@ export default function App() {
         );
         return;
       }
-      addRoots(found.map((f) => f.path));
-      flash(`发现 ${found.length} 个项目`);
+      // 添加结果由 addRoots 统一播报（它才知道哪些被设成了未启用）
+      addRoots(toRecords(found.map((f) => f.path)));
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(null);
     }
-  }, [addRoots, flash]);
+  }, [addRoots, toRecords, setError]);
 
   const handleExportOne = useCallback(
     async (p: ProjectEntry) => {
@@ -523,6 +639,10 @@ export default function App() {
 
       if (e.key === "Escape") {
         setShowShortcuts(false);
+        setShowSettings(false);
+      } else if (mod && e.key === ",") {
+        e.preventDefault();
+        setShowSettings(true);
       } else if (mod && e.key === "Enter") {
         e.preventDefault();
         void generate();
@@ -553,13 +673,19 @@ export default function App() {
   }, [generate, handleCopy, handleSave, focusSearch]);
 
   // 派生数据（口径统一走 stats.ts 的 projectStats，与卡片/管理页一致）
+  // 只算启用的项目 —— 未启用不参与导出，计进来会让底部统计和预算条虚报体量
 
   const totals = useMemo(() => {
     let files = 0;
     let selected = 0;
     let selLines = 0;
     let selBytes = 0;
+    let off = 0;
     for (const p of projects) {
+      if (!p.enabled) {
+        off += 1;
+        continue;
+      }
       const s = projectStats(p.scan, p.selected);
       files += s.total;
       selected += s.selected;
@@ -571,6 +697,7 @@ export default function App() {
       selected,
       selLines,
       selBytes,
+      off,
       estTokens: estimateTokensFromBytes(selBytes),
     };
   }, [projects]);
@@ -579,18 +706,23 @@ export default function App() {
 
   const previewText = useMemo(() => {
     if (!bundle) return "";
-    const MAX = 200_000;
+    const MAX = settings.previewLimit;
     if (bundle.content.length <= MAX) return bundle.content;
     return (
       bundle.content.slice(0, MAX) +
       `\n\n... [预览截断，完整内容 ${formatNumber(bundle.content.length)} 字符，请复制或保存查看] ...`
     );
-  }, [bundle]);
+  }, [bundle, settings.previewLimit]);
 
   const generating = busy === "extract";
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      ref={appRef}
+      /* 侧边栏宽度的落点：PanelResizer 拖拽时直接改写这个变量，松手才回写 state */
+      style={{ "--left-w": `${settings.leftPanelWidth}px` } as CSSProperties}
+    >
       <Topbar
         view={view}
         onView={setView}
@@ -601,6 +733,7 @@ export default function App() {
         onCollapseAll={() => setAllCollapsed(true)}
         onExpandAll={() => setAllCollapsed(false)}
         onShowShortcuts={() => setShowShortcuts(true)}
+        onShowSettings={() => setShowSettings(true)}
         theme={theme}
         onCycleTheme={cycleTheme}
         onClear={() => {
@@ -646,84 +779,127 @@ export default function App() {
           <div className="drop-card">📂 松开鼠标，把这些文件夹添加为项目</div>
         </div>
       )}
+      <BulkBar
+        count={markedIds.length}
+        needConfirm={settings.confirmBulkRemove}
+        onRemove={removeMarked}
+        onEnable={() => setEnabledFor(markedIds, true)}
+        onDisable={() => setEnabledFor(markedIds, false)}
+        onInvert={() => setMarked(invertMark(projects.map((p) => p.id), markedSet))}
+        onClear={() => setMarked(new Set())}
+      />
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+          onReset={() => {
+            setSettings(DEFAULT_SETTINGS);
+            flash("已恢复默认设置");
+          }}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       <main key={view} className={`body ${view === "manage" ? "is-manage" : ""}`}>
         {view === "manage" ? (
           <ProjectManager
             projects={projects}
             busy={busy}
+            marked={markedSet}
             onAdd={() => void handleAdd()}
             onRescan={(id) => {
               const p = projects.find((x) => x.id === id);
               if (p) void scanOne(p.id, p.root);
             }}
             onRescanAll={() => {
+              // 未启用的不在此列：它们本来就没扫描过，等着被勾选而不是被重扫
               for (const p of projects) {
-                if (p.status !== "loading") void scanOne(p.id, p.root);
+                if (p.enabled && p.status !== "loading") void scanOne(p.id, p.root);
               }
             }}
             onRemove={removeProject}
+            onSetMarked={setMarked}
+            onSetEnabled={setEnabledFor}
             onBulk={(id, mode) => bulkSelectFor(id, mode)}
             onExportOne={(p) => void handleExportOne(p)}
             onOpen={openProject}
           />
         ) : (
           <>
-        <section className="panel left">
-          <div className="panel-head">
-            <input
-              ref={searchRef}
-              className="search"
-              placeholder="在所有项目里搜索文件路径…（Ctrl+F）"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+            <section className="panel left">
+              <div className="panel-head">
+                <input
+                  ref={searchRef}
+                  className="search"
+                  placeholder="在所有项目里搜索文件路径…（Ctrl+F）"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <div className="panel-scroll">
+                {projects.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-icon">📂</div>
+                    <p>还没有项目</p>
+                    <p className="muted">
+                      点右上角「+ 添加项目」选一个或多个文件夹，
+                      <br />
+                      每个文件夹会被当成一个独立项目。
+                      <br />
+                      <br />
+                      如果父目录下有一堆项目，直接点
+                      <br />
+                      「自动识别子项目」一次全加进来。
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {totals.off > 0 && totals.files === 0 && (
+                      <div className="hint-bar">
+                        {totals.off} 个文件夹待加载 —— 勾选行首的方框才会扫描并展开文件树。
+                      </div>
+                    )}
+                    <div className="project-list">
+                      {projects.map((p) => (
+                        <ProjectCard
+                          key={p.id}
+                          project={p}
+                          query={query}
+                          marked={p.marked}
+                          treeCollapseAt={settings.treeCollapseAt}
+                          onToggleCollapse={() => toggleCollapse(p.id)}
+                          onToggleMark={() => toggleMarkOne(p.id)}
+                          onSetEnabled={(enabled) => setEnabledFor([p.id], enabled)}
+                          onRemove={() => removeProject(p.id)}
+                          onRescan={() => void scanOne(p.id, p.root)}
+                          onSetSelected={(paths, checked) =>
+                            setSelectedFor(p.id, paths, checked)
+                          }
+                          onBulk={(mode) => bulkSelectFor(p.id, mode)}
+                          onToggleCategory={(cat) => toggleCategoryFor(p.id, cat)}
+                          onExportOne={() => void handleExportOne(p)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              {projects.length > 0 && (
+                <div className="panel-foot">
+                  {projects.length} 个项目
+                  {totals.off > 0 && ` · 启用 ${projects.length - totals.off}`} · 已选{" "}
+                  <b>{totals.selected}</b> / {totals.files} 个文件 ·{" "}
+                  {formatNumber(totals.selLines)} 行 · {formatBytes(totals.selBytes)}
+                </div>
+              )}
+            </section>
+
+            <PanelResizer
+              width={settings.leftPanelWidth}
+              targetRef={appRef}
+              onCommit={(w) => setSettings((s) => ({ ...s, leftPanelWidth: w }))}
             />
-          </div>
-          <div className="panel-scroll">
-            {projects.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">📂</div>
-                <p>还没有项目</p>
-                <p className="muted">
-                  点右上角「+ 添加项目」选一个或多个文件夹，
-                  <br />
-                  每个文件夹会被当成一个独立项目。
-                  <br />
-                  <br />
-                  如果父目录下有一堆项目，直接点
-                  <br />
-                  「自动识别子项目」一次全加进来。
-                </p>
-              </div>
-            ) : (
-              <div className="project-list">
-                {projects.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    query={query}
-                    onToggleCollapse={() => toggleCollapse(p.id)}
-                    onRemove={() => removeProject(p.id)}
-                    onRescan={() => void scanOne(p.id, p.root)}
-                    onSetSelected={(paths, checked) =>
-                      setSelectedFor(p.id, paths, checked)
-                    }
-                    onBulk={(mode) => bulkSelectFor(p.id, mode)}
-                    onToggleCategory={(cat) => toggleCategoryFor(p.id, cat)}
-                    onExportOne={() => void handleExportOne(p)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          {projects.length > 0 && (
-            <div className="panel-foot">
-              {projects.length} 个项目 · 已选 <b>{totals.selected}</b> / {totals.files}{" "}
-              个文件 · {formatNumber(totals.selLines)} 行 · {formatBytes(totals.selBytes)}
-            </div>
-          )}
-        </section>
 
         <section className="panel right">
           <div className="options">

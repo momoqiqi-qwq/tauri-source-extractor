@@ -487,7 +487,8 @@ kbd {
 /* ---------------- layout ---------------- */
 .body {
   display: flex;
-  gap: 12px;
+  /* 中缝留给拖拽手柄，所以比原来的 12px 收窄一档 */
+  gap: 4px;
   padding: 12px;
   flex: 1;
   min-height: 0;
@@ -504,7 +505,8 @@ kbd {
 }
 
 .panel.left {
-  width: 470px;
+  /* 宽度可拖拽：值由 .app 上的 --left-w 提供（App 渲染 + PanelResizer 实时改写） */
+  width: var(--left-w, 470px);
   flex-shrink: 0;
 }
 
@@ -1625,6 +1627,297 @@ kbd {
 /* 扫描中的状态文案呼吸提示 */
 .project-status.loading {
   animation: tse-pulse 1.2s ease-in-out infinite;
+}
+
+/* ---------------- 面板拖拽 / 启用勾选 / 多选 / 设置 ---------------- */
+
+.resizer {
+  flex: 0 0 10px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 6px;
+  outline: none;
+  /* 指针捕获期间交给 JS，否则浏览器会把拖动变成滚动 */
+  touch-action: none;
+}
+
+.resizer-grip {
+  width: 2px;
+  height: 30px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background-color var(--dur-fast) var(--ease-out),
+    height var(--dur-fast) var(--ease-out);
+}
+
+.resizer:hover .resizer-grip,
+.resizer.active .resizer-grip,
+.resizer:focus-visible .resizer-grip {
+  background: var(--accent);
+  height: 64px;
+}
+
+.resizer:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 拖动途中：光标钉在 col-resize，别把扫过的项目树文字选中 */
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---- 行首两个框：圆点 = 多选，方框 = 启用 ---- */
+.mark-dot {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--panel);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  /* 平时隐身但保留占位，hover 或被选中才现身 —— 不会引起行抖动 */
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.project-head:hover .mark-dot,
+.mgr-row:hover .mark-dot,
+.mark-dot.on,
+.mark-dot:focus-visible {
+  opacity: 1;
+}
+
+.mark-dot:hover {
+  border-color: var(--accent);
+}
+
+.mark-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.enable-box {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.mgr-row .enable-box {
+  vertical-align: middle;
+  margin-right: 7px;
+}
+
+/* ---- 未启用的行：一眼看出它没在干活 ---- */
+.project-card.is-off {
+  background: var(--panel-2);
+}
+
+.project-card.is-off .project-name {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.project-card.is-off .kind-badge {
+  opacity: 0.55;
+}
+
+.project-status.off {
+  color: var(--faint-2);
+}
+
+.mgr-row.is-off td {
+  color: var(--faint-2);
+}
+
+.mgr-row.is-off .mgr-name,
+.mgr-row.is-off .kind-badge,
+.mgr-row.is-off .mgr-path {
+  opacity: 0.62;
+}
+
+.manager-table .col-mark {
+  width: 30px;
+  padding-left: 12px;
+  padding-right: 0;
+}
+
+/* ---- 多选后的批量操作条 ---- */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  font-size: 12px;
+  animation: tse-pop-in var(--dur-base) var(--ease-spring) both;
+}
+
+.bulk-count {
+  color: var(--strong-text);
+}
+
+.bulk-count b {
+  color: var(--accent);
+}
+
+.bulk-bar .spacer {
+  flex: 1;
+}
+
+.mini.primary {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 二次确认的第二步：红底白字，跟旁边那些按钮明显区分开 */
+.mini.danger.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  opacity: 1;
+}
+
+/* ---- 设置面板 ---- */
+.settings-card {
+  width: 580px;
+  max-height: calc(100vh - 72px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 12px;
+}
+
+.settings-body {
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+}
+
+.set-group h4 {
+  margin: 0 0 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--faint-2);
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.set-row + .set-row {
+  border-top: 1px solid var(--row-border);
+}
+
+.set-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.set-hint {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--faint-2);
+}
+
+.set-input {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.set-input input {
+  width: 92px;
+  height: 28px;
+  padding: 0 8px;
+  text-align: right;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.set-input input:focus {
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.set-unit {
+  width: 24px;
+  font-size: 11px;
+  color: var(--faint-2);
+}
+
+.set-row.check {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.set-row.check input {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.settings-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-foot .spacer {
+  flex: 1;
+}
+
+.modal-head .muted.tiny {
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.dim {
+  opacity: 0.62;
 }
 
 /* ---- 尊重系统的「减少动态效果」设置：一切动画与过渡即时完成 ---- */

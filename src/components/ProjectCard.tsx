@@ -23,7 +23,12 @@ export type { BulkMode };
 interface Props {
   project: ProjectEntry;
   query: string;
+  marked: boolean;
+  /** 文件数超过这个阈值时目录默认折叠（设置项） */
+  treeCollapseAt: number;
   onToggleCollapse: () => void;
+  onToggleMark: () => void;
+  onSetEnabled: (enabled: boolean) => void;
   onRemove: () => void;
   onRescan: () => void;
   onSetSelected: (paths: string[], checked: boolean) => void;
@@ -35,7 +40,11 @@ interface Props {
 export default function ProjectCard({
   project,
   query,
+  marked,
+  treeCollapseAt,
   onToggleCollapse,
+  onToggleMark,
+  onSetEnabled,
   onRemove,
   onRescan,
   onSetSelected,
@@ -71,10 +80,45 @@ export default function ProjectCard({
   // 卡片头部也标出本项目已选内容的 token 体量，与管理页、预算条同一套档位
   const { estTokens, tokenLevel } = stats;
 
+  const on = project.enabled;
+
   return (
-    <div className={`project-card ${project.collapsed ? "is-collapsed" : ""}`}>
-      <div className="project-head" onClick={onToggleCollapse}>
-        <span className={`caret ${project.collapsed ? "closed" : ""}`}>▾</span>
+    <div
+      className={`project-card ${on ? "" : "is-off"} ${project.collapsed ? "is-collapsed" : ""}`}
+    >
+      <div
+        className="project-head"
+        onClick={() => {
+          // 未启用的卡片没有树可折叠，点行等于直接启用
+          if (!on) onSetEnabled(true);
+          else onToggleCollapse();
+        }}
+      >
+        <button
+          className={`mark-dot${marked ? " on" : ""}`}
+          aria-pressed={marked}
+          aria-label="加入多选"
+          title={marked ? "取消多选" : "加入多选（批量启用/停用/移除）"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleMark();
+          }}
+        >
+          {marked ? "✓" : ""}
+        </button>
+        <input
+          type="checkbox"
+          className="enable-box"
+          checked={on}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onSetEnabled(e.target.checked)}
+          title={
+            on
+              ? "已启用：正在扫描并加载文件树。取消勾选可收回内存"
+              : "勾选后才会扫描这个文件夹并加载文件树"
+          }
+        />
+        {on && <span className={`caret ${project.collapsed ? "closed" : ""}`}>▾</span>}
         <span
           className="kind-badge"
           style={{ color: kind.color, borderColor: `${kind.color}55` }}
@@ -88,15 +132,20 @@ export default function ProjectCard({
           {shortPath(project.root)}
         </span>
 
-        {project.status === "loading" && (
+        {!on && (
+          <span className="project-status off" title="未参与导出与统计">
+            未启用
+          </span>
+        )}
+        {on && project.status === "loading" && (
           <span className="project-status loading">扫描中…</span>
         )}
-        {project.status === "error" && (
+        {on && project.status === "error" && (
           <span className="project-status err" title={project.error}>
             扫描失败
           </span>
         )}
-        {project.status === "ready" && (
+        {on && project.status === "ready" && (
           <span className="project-stats">
             <b>{stats.selected}</b>/{stats.total} 文件 ·{" "}
             {formatNumber(stats.selLines)} 行 · {formatBytes(stats.selBytes)} ·{" "}
@@ -107,19 +156,27 @@ export default function ProjectCard({
         )}
 
         <div className="project-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="mini" onClick={onRescan} title="重新扫描">
-            ↻
-          </button>
-          <button className="mini" onClick={onExportOne} title="只导出本项目">
-            导出
-          </button>
+          {on ? (
+            <>
+              <button className="mini" onClick={onRescan} title="重新扫描">
+                ↻
+              </button>
+              <button className="mini" onClick={onExportOne} title="只导出本项目">
+                导出
+              </button>
+            </>
+          ) : (
+            <button className="mini" onClick={() => onSetEnabled(true)} title="扫描并加载文件树">
+              启用
+            </button>
+          )}
           <button className="mini danger" onClick={onRemove} title="移除该项目">
             ✕
           </button>
         </div>
       </div>
 
-      {!project.collapsed && (
+      {on && !project.collapsed && (
         <div className="project-body">
           {project.status === "error" && (
             <div className="project-error">{project.error}</div>
@@ -187,7 +244,7 @@ export default function ProjectCard({
                   onSetSelected={onSetSelected}
                   query={query}
                   activeCategories={ALL_CATEGORIES}
-                  defaultCollapsed={files.length > 250}
+                  defaultCollapsed={files.length > treeCollapseAt}
                 />
               </div>
             </>

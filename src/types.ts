@@ -57,6 +57,61 @@ export interface ExtractOptions {
   maxFileKb: number;
 }
 
+/**
+ * 界面偏好。
+ *
+ * 与 `ExtractOptions` 刻意分成两个类型：后者是 `extract_bundle` 的 IPC 契约，
+ * 会整个序列化给 Rust。把「toast 停留多久」这类纯前端偏好混进去，等于往协议
+ * 里塞后端从不读的字段，改一处要两头对齐。
+ */
+export interface UiSettings {
+  /** 提示（toast）停留毫秒数，0 = 不自动关闭 */
+  toastTtl: number;
+  /** 错误横幅停留毫秒数，0 = 常驻直到手动关闭 */
+  errorTtl: number;
+  /** 一次添加超过 N 个文件夹时默认不启用；0 = 永远等手动勾选 */
+  autoLoadLimit: number;
+  /** 启用某文件夹后自动展开它的文件树 */
+  expandOnEnable: boolean;
+  /** 文件数超过该阈值时，文件树的目录默认折叠 */
+  treeCollapseAt: number;
+  /** 勾选或导出选项变化后自动重新生成预览 */
+  autoRegenerate: boolean;
+  /** 自动重生成的防抖毫秒数 */
+  regenDebounce: number;
+  /** 预览区最多渲染的字符数，超出截断 */
+  previewLimit: number;
+  /** 左侧面板宽度 px，由拖拽手柄实时写入 */
+  leftPanelWidth: number;
+  /** 批量移除前是否需要二次确认 */
+  confirmBulkRemove: boolean;
+}
+
+export const DEFAULT_SETTINGS: UiSettings = {
+  toastTtl: 2400,
+  errorTtl: 0,
+  autoLoadLimit: 5,
+  expandOnEnable: true,
+  treeCollapseAt: 250,
+  autoRegenerate: true,
+  regenDebounce: 700,
+  previewLimit: 200_000,
+  leftPanelWidth: 470,
+  confirmBulkRemove: true,
+};
+
+export const PANEL_MIN_WIDTH = 320;
+
+/**
+ * 面板宽度钳制。上限同时受固定值和窗口宽度约束 —— 否则窗口缩小后
+ * 侧边栏会把右侧面板挤成 0 宽，看起来像"预览不见了"。
+ */
+export function clampPanelWidth(w: number, viewportWidth = window.innerWidth): number {
+  const max = Math.min(900, Math.max(PANEL_MIN_WIDTH, viewportWidth - 360));
+  if (!Number.isFinite(w)) return DEFAULT_SETTINGS.leftPanelWidth;
+  return Math.round(Math.min(max, Math.max(PANEL_MIN_WIDTH, w)));
+}
+
 export interface ProjectBrief {
   name: string;
   fileCount: number;
@@ -104,10 +159,21 @@ export interface ProjectEntry {
   name: string;
   kind: ProjectKind;
   collapsed: boolean;
-  status: "loading" | "ready" | "error";
+  /** idle = 未启用因而从未扫描；只有启用后才会走 loading → ready/error */
+  status: "idle" | "loading" | "ready" | "error";
   error?: string;
   scan: ScanResult | null;
   selected: Set<string>;
+  /**
+   * 是否纳入本次工作集。
+   *
+   * false = 只在列表里占一行：不扫描、不渲染文件树、不进统计与导出。
+   * 一次导入几十个文件夹时，只有勾上的那几个才真的去读盘 —— 否则光是
+   * 把每个项目的文件树挂进 DOM 就能卡死。
+   */
+  enabled: boolean;
+  /** 多选标记，用于批量移除/启用/停用；与 enabled 无关 */
+  marked: boolean;
 }
 
 export const CATEGORY_META: Record<
