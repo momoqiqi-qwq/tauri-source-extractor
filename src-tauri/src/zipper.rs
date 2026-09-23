@@ -40,7 +40,8 @@ pub struct ZipResult {
 ///
 /// 单项目时 zip 内就是项目相对路径，解压即得项目结构；多项目时顶层加
 /// 项目名前缀，避免同名文件互相覆盖。
-#[tauri::command]
+// `(async)`：打包可能涉及几百 MB 的文件读取，同步跑在主线程会冻结 UI
+#[tauri::command(async)]
 pub fn extract_zip(projects: Vec<ProjectInput>, path: String) -> Result<ZipResult, String> {
     write_zip_bundle(&projects, &path)
 }

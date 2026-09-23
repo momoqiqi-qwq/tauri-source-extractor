@@ -290,7 +290,9 @@ fn should_skip_dir(root_path: &Path, e: &walkdir::DirEntry) -> bool {
         .any(|(prefix, dir)| name == *dir && rel.starts_with(prefix))
 }
 
-#[tauri::command]
+/// `(async)`：同步命令默认跑在主线程，扫描大仓库（遍历 + 读全部文本文件数行数）
+/// 会冻结 UI；标成 async 让它进后台线程池。
+#[tauri::command(async)]
 pub fn scan_project(root: String) -> Result<ScanResult, String> {
     let root_path = Path::new(&root);
     if !root_path.is_dir() {
@@ -438,7 +440,7 @@ pub fn scan_project(root: String) -> Result<ScanResult, String> {
 }
 
 /// 在父目录里自动发现子项目（含 src-tauri / package.json / Cargo.toml 的目录）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn detect_projects(
     root: String,
     max_depth: Option<usize>,

@@ -68,7 +68,8 @@ struct Loaded {
     lossy: bool,
 }
 
-#[tauri::command]
+// `(async)`：合并导出要把每个选中文件整个读进内存，大包在主线程上会卡 UI
+#[tauri::command(async)]
 pub fn extract_bundle(
     projects: Vec<ProjectInput>,
     options: Option<ExtractOptions>,
@@ -149,7 +150,8 @@ pub fn extract_bundle(
                     continue;
                 }
             };
-            let lossy = String::from_utf8(bytes.clone()).is_err();
+            // 用借用的 from_utf8 探测，避免为了判编码把整个文件再克隆一份
+            let lossy = std::str::from_utf8(&bytes).is_err();
             let content = String::from_utf8_lossy(&bytes).to_string();
             project_chars += content.chars().count();
             let lines = if content.is_empty() {
@@ -268,7 +270,7 @@ pub fn extract_bundle(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_text_file(path: String, content: String) -> Result<String, String> {
     if let Some(parent) = Path::new(&path).parent() {
         if !parent.exists() {
