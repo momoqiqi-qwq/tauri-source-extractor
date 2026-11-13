@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="./assets/readme-hero.svg" alt="tauri-source-extractor" width="1000" />
+<img src="./assets/hero.svg" alt="tauri-source-extractor" width="1000" />
 
 **Tauri 关键源码提取器**
 
 [![stars](https://img.shields.io/github/stars/momoqiqi-qwq/tauri-source-extractor?style=for-the-badge&color=f5c518&labelColor=2b2b2b)](https://github.com/momoqiqi-qwq/tauri-source-extractor/stargazers) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white) ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
 
 </div>
+
+---
 
 <details open>
 <summary><b>目录</b></summary>
