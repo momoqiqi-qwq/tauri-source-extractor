@@ -1,3 +1,37 @@
+<div align="center">
+
+<img src="./assets/readme-hero.svg" alt="tauri-source-extractor" width="1000" />
+
+**Tauri 关键源码提取器**
+
+[![stars](https://img.shields.io/github/stars/momoqiqi-qwq/tauri-source-extractor?style=for-the-badge&color=f5c518&labelColor=2b2b2b)](https://github.com/momoqiqi-qwq/tauri-source-extractor/stargazers) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white) ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
+
+</div>
+
+<details>
+<summary><b>目录</b></summary>
+
+- [它解决什么问题](#它解决什么问题)
+- [上下文预算（重要）](#上下文预算重要)
+- [多项目](#多项目)
+- [已加载文件夹管理页](#已加载文件夹管理页)
+- [动效系统](#动效系统)
+- [勾选的文件夹才会被加载](#勾选的文件夹才会被加载)
+- [设置](#设置)
+- [勾选会被记住](#勾选会被记住)
+- [分类规则](#分类规则)
+- [导出格式](#导出格式)
+- [更新日志](#更新日志)
+- [键盘快捷键](#键盘快捷键)
+- [开发与构建](#开发与构建)
+- [技术要点](#技术要点)
+- [目录结构](#目录结构)
+- [常见问题](#常见问题)
+
+</details>
+
+---
+
 # Tauri 关键源码提取器
 
 一个 Tauri v2 桌面应用：扫描任意 Tauri 项目，自动识别「关键源码」，勾选后导出**单个合并文件**（直接粘贴给 AI 当上下文），或**一键打包成 zip**（保留原始目录结构，文件字节不损）。
