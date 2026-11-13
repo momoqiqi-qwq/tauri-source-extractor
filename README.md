@@ -8,7 +8,7 @@
 
 </div>
 
-<details>
+<details open>
 <summary><b>目录</b></summary>
 
 - [它解决什么问题](#它解决什么问题)
@@ -29,6 +29,8 @@
 - [常见问题](#常见问题)
 
 </details>
+
+---
 
 ---
 
